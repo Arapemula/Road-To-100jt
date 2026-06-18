@@ -17,6 +17,39 @@ function generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryS
   return crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
 }
 
+// Helper to call Bybit API with User-Agent and failover domains (api.bybit.com and api.bytick.com)
+async function callBybit(endpoint, headers, method = 'GET', data = null) {
+  const customHeaders = {
+    ...headers,
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
+  const config = {
+    method,
+    headers: customHeaders,
+  };
+  if (data) config.data = data;
+
+  try {
+    config.url = `https://api.bybit.com${endpoint}`;
+    return await axios(config);
+  } catch (err) {
+    // If it fails with a 403 or network issue, fallback to api.bytick.com
+    const is403OrNetworkErr = !err.response || err.response.status === 403;
+    if (is403OrNetworkErr) {
+      console.warn(`Bybit primary domain failed (${err.message}). Retrying with api.bytick.com...`);
+      try {
+        config.url = `https://api.bytick.com${endpoint}`;
+        return await axios(config);
+      } catch (retryErr) {
+        throw retryErr;
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
 // Route to get USD to IDR conversion rate
 app.get('/api/rates', async (req, res) => {
   try {
@@ -51,7 +84,22 @@ async function getSpotPrices() {
   priceMap['USDE'] = 1.0;
 
   try {
-    const response = await axios.get('https://api.bybit.com/v5/market/tickers?category=spot');
+    let response;
+    try {
+      response = await axios.get('https://api.bybit.com/v5/market/tickers?category=spot', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+    } catch (err) {
+      console.warn(`Tickers failed on api.bybit.com (${err.message}). Trying api.bytick.com...`);
+      response = await axios.get('https://api.bytick.com/v5/market/tickers?category=spot', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+    }
+
     if (response.data && response.data.retCode === 0 && response.data.result?.list) {
       for (const item of response.data.result.list) {
         if (item.symbol.endsWith('USDT')) {
@@ -84,7 +132,6 @@ app.post('/api/bybit/balance', async (req, res) => {
     : ['UNIFIED', 'SPOT']; // default to checking both Unified and Spot to cover all account modes!
 
   const shouldQueryFund = !accountTypes.includes('FUND');
-  const baseUrl = 'https://api.bybit.com'; // Always Mainnet for Vercel deployment
   const recvWindow = '5000';
   const results = [];
   let totalUsdValue = 0;
@@ -109,7 +156,7 @@ app.post('/api/bybit/balance', async (req, res) => {
       };
 
       try {
-        const response = await axios.get(`${baseUrl}/v5/account/wallet-balance?${queryString}`, { headers });
+        const response = await callBybit(`/v5/account/wallet-balance?${queryString}`, headers);
         const data = response.data;
 
         if (data.retCode === 0 && data.result?.list) {
@@ -168,7 +215,7 @@ app.post('/api/bybit/balance', async (req, res) => {
       };
 
       try {
-        const response = await axios.get(`${baseUrl}/v5/asset/transfer/query-account-coins-balance?${queryString}`, { headers });
+        const response = await callBybit(`/v5/asset/transfer/query-account-coins-balance?${queryString}`, headers);
         const data = response.data;
 
         if (data.retCode === 0 && data.result?.balance) {
