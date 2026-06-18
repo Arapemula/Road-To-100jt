@@ -341,7 +341,20 @@ export default function App() {
             const closest = [...liveHistory]
               .reverse()
               .find(h => h.dateKey <= dateKey);
-            actualVal = closest ? closest.amount : null;
+            
+            if (closest) {
+              actualVal = closest.amount;
+            } else {
+              // Interpolate from baseline (28M) to the oldest record in history
+              const oldestPoint = liveHistory[0];
+              const oldestDate = new Date(oldestPoint.dateKey);
+              const totalDaysToOldest = Math.max(1, Math.ceil((oldestDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24)));
+              const currentDate = new Date(dateKey);
+              const daysFromStartPoint = Math.ceil((currentDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
+              const frac = Math.max(0, Math.min(1, daysFromStartPoint / totalDaysToOldest));
+              const startVal = 28000000;
+              actualVal = Math.round(startVal + (oldestPoint.amount - startVal) * frac);
+            }
           } else {
             const frac = dayOffset / daysFromStart;
             const base = 28000000 + (totalActualBalance - 28000000) * frac;

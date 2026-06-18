@@ -47,7 +47,7 @@ export default function ProgressionChart({ chartData }) {
 
   return (
     <div className="chart-wrapper">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="99%" height={300}>
         <AreaChart
           data={chartData}
           margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
