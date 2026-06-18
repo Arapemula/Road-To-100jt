@@ -39,6 +39,33 @@ app.get('/api/bybit/config', (req, res) => {
   });
 });
 
+// Helper to fetch current spot prices for coin-to-USD conversion
+async function getSpotPrices() {
+  const priceMap = {};
+  // Stablecoins are always 1 USD
+  priceMap['USDT'] = 1.0;
+  priceMap['USDC'] = 1.0;
+  priceMap['BUSD'] = 1.0;
+  priceMap['DAI'] = 1.0;
+  priceMap['USD'] = 1.0;
+  priceMap['USDE'] = 1.0;
+
+  try {
+    const response = await axios.get('https://api.bybit.com/v5/market/tickers?category=spot');
+    if (response.data && response.data.retCode === 0 && response.data.result?.list) {
+      for (const item of response.data.result.list) {
+        if (item.symbol.endsWith('USDT')) {
+          const coin = item.symbol.replace('USDT', '');
+          priceMap[coin] = parseFloat(item.lastPrice);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching spot prices:', error.message);
+  }
+  return priceMap;
+}
+
 // Route to fetch Bybit balance securely on the server-side (using Vercel Env)
 app.post('/api/bybit/balance', async (req, res) => {
   const apiKey = process.env.BYBIT_API_KEY;
@@ -51,18 +78,25 @@ app.post('/api/bybit/balance', async (req, res) => {
     });
   }
 
-  // accountTypes defaults to UNIFIED, but can be configured via env
+  // We will query both Trading Account(s) (UNIFIED, SPOT, etc.) AND the Funding Account (FUND)
   const accountTypes = process.env.BYBIT_ACCOUNT_TYPES 
     ? process.env.BYBIT_ACCOUNT_TYPES.split(',') 
-    : ['UNIFIED'];
+    : ['UNIFIED', 'SPOT']; // default to checking both Unified and Spot to cover all account modes!
 
+  const shouldQueryFund = !accountTypes.includes('FUND');
   const baseUrl = 'https://api.bybit.com'; // Always Mainnet for Vercel deployment
   const recvWindow = '5000';
   const results = [];
   let totalUsdValue = 0;
 
   try {
+    // 1. Fetch spot prices for coin-to-USD conversion of Funding assets
+    const spotPrices = await getSpotPrices();
+
+    // 2. Fetch balances for Trading Accounts (UNIFIED, SPOT, etc.)
     for (const accountType of accountTypes) {
+      if (accountType === 'FUND') continue; // We will handle FUND separately below
+      
       const timestamp = Date.now().toString();
       const queryString = `accountType=${accountType}`;
       const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
@@ -103,6 +137,7 @@ app.post('/api/bybit/balance', async (req, res) => {
             success: true
           });
         } else {
+          // Keep failure info but do not block other accounts
           results.push({
             accountType,
             success: false,
@@ -117,6 +152,77 @@ app.post('/api/bybit/balance', async (req, res) => {
           error: err.response?.data?.retMsg || err.message
         });
       }
+    }
+
+    // 3. Fetch Funding Wallet Balance (FUND)
+    if (shouldQueryFund || accountTypes.includes('FUND')) {
+      const timestamp = Date.now().toString();
+      const queryString = `accountType=FUND`;
+      const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
+
+      const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature,
+      };
+
+      try {
+        const response = await axios.get(`${baseUrl}/v5/asset/transfer/query-account-coins-balance?${queryString}`, { headers });
+        const data = response.data;
+
+        if (data.retCode === 0 && data.result?.balance) {
+          let fundEquity = 0;
+          const coins = [];
+
+          for (const item of data.result.balance) {
+            const coinName = item.coin;
+            const amount = parseFloat(item.walletBalance || '0');
+            if (amount <= 0) continue;
+
+            // Get USD price of this coin
+            const price = spotPrices[coinName] || 0;
+            const usdVal = amount * price;
+
+            fundEquity += usdVal;
+            coins.push({
+              coin: coinName,
+              walletBalance: amount,
+              usdValue: usdVal
+            });
+          }
+
+          totalUsdValue += fundEquity;
+          results.push({
+            accountType: 'FUND',
+            equity: fundEquity,
+            coins,
+            success: true
+          });
+        } else {
+          results.push({
+            accountType: 'FUND',
+            success: false,
+            error: data.retMsg || `Error code ${data.retCode}`
+          });
+        }
+      } catch (err) {
+        console.error(`Error fetching Funding balance:`, err.message);
+        results.push({
+          accountType: 'FUND',
+          success: false,
+          error: err.response?.data?.retMsg || err.message
+        });
+      }
+    }
+
+    // If all queried accounts returned errors (failed to authenticate or connect), return success: false
+    const succeeded = results.some(r => r.success);
+    if (!succeeded && results.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: results.find(r => r.error)?.error || 'Gagal terhubung ke Bybit API.'
+      });
     }
 
     res.json({
