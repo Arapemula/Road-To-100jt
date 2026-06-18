@@ -207,12 +207,6 @@ export default function App() {
 
   // Fetch Live Balance from proxy
   const fetchLiveBalance = async () => {
-    if (!isLockedByServer && (!apiKey || !apiSecret)) {
-      setErrorMsg('Masukkan API Key dan API Secret di menu integrasi.');
-      setShowSettings(true);
-      return;
-    }
-
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -221,12 +215,7 @@ export default function App() {
       const res = await fetch('/api/bybit/balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          apiKey: isLockedByServer ? '' : apiKey, 
-          apiSecret: isLockedByServer ? '' : apiSecret, 
-          accountTypes, 
-          isTestnet 
-        })
+        body: JSON.stringify({})
       });
 
       const data = await res.json();
@@ -260,7 +249,7 @@ export default function App() {
           celebrate();
         }
       } else {
-        setErrorMsg(data.error || 'Autentikasi Bybit ditolak. Silakan cek API Key Anda.');
+        setErrorMsg(data.error || 'Autentikasi Bybit ditolak.');
       }
     } catch (err) {
       setErrorMsg('Koneksi proxy gagal. Pastikan backend server anda sudah menyala.');
@@ -496,7 +485,7 @@ export default function App() {
               className={`tab-btn ${mode === 'live' ? 'active' : ''}`}
               onClick={() => {
                 setMode('live');
-                if (apiKey && apiSecret) fetchLiveBalance();
+                fetchLiveBalance();
               }}
             >
               Live Bybit Node
