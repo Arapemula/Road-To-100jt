@@ -181,8 +181,6 @@ export default function App() {
         if (configData.success && configData.hasServerKeys) {
           setIsLockedByServer(true);
           setMode('live');
-          setIsTestnet(configData.isTestnet);
-          setAccountTypes(configData.accountTypes);
         }
       } catch (err) {
         console.error('Failed to initialize app settings:', err);
