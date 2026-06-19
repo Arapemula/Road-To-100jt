@@ -782,7 +782,7 @@ export default function App() {
           </div>
 
           {/* Right Column: Switcher panel (Assets vs Journal) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', minHeight: 0 }}>
             
             {/* Selected Date telemetry details */}
             <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -835,7 +835,7 @@ export default function App() {
             </section>
 
             {/* Asset Distribution & Trade Journal switcher */}
-            <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', flex: 1 }}>
+            <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', flex: 1, minHeight: 0 }}>
               <div className="tabs-container" style={{ borderRadius: '30px', display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
                 <button 
                   className={`tab-btn ${rightPanelTab === 'assets' ? 'active' : ''}`}
@@ -862,7 +862,7 @@ export default function App() {
 
               {/* Tab Content: Bybit Assets */}
               {rightPanelTab === 'assets' && (
-                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                   {activeCoins.map(c => {
                     const allocationPct = currentBybitUsd > 0 ? (c.usdValue / currentBybitUsd) * 100 : 0;
                     return (
@@ -890,7 +890,7 @@ export default function App() {
 
               {/* Tab Content: Active Positions */}
               {rightPanelTab === 'positions' && (
-                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                   {positionsLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
                       <RefreshCw size={20} className="spin-anim" />
@@ -957,7 +957,7 @@ export default function App() {
 
               {/* Tab Content: Bybit Closed PnL History */}
               {rightPanelTab === 'history' && (
-                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                   {historyLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
                       <RefreshCw size={20} className="spin-anim" />
