@@ -722,7 +722,7 @@ export default function App() {
         <div className="grid-asymmetric card-animate">
           
           {/* Left Column: Recharts Area Chart & Trading Calendar */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
             
             {/* Progression Chart */}
             <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -782,7 +782,7 @@ export default function App() {
           </div>
 
           {/* Right Column: Switcher panel (Assets vs Journal) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
             
             {/* Selected Date telemetry details */}
             <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
