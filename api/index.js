@@ -9,28 +9,43 @@ dotenv.config();
 const app = express();
 
 // SEC-01: Restrict CORS to allowed origin(s).
-// Set FRONTEND_URL env var in Vercel to your deployment URL (e.g. https://your-app.vercel.app)
-// In local dev (no FRONTEND_URL set), all origins are allowed as a fallback.
-const allowedOrigins = process.env.FRONTEND_URL
-  ? [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:4173']
-  : null;
+// On Vercel, frontend and API share the same domain (same-origin), so CORS
+// headers are not needed for production requests — the browser won't send an
+// Origin header for same-origin requests.
+//
+// FRONTEND_URL supports comma-separated values:
+//   FRONTEND_URL=https://my-app.vercel.app,https://my-custom-domain.com
+//
+// All *.vercel.app origins are automatically allowed to handle preview URLs.
 
-app.use(cors(
-  allowedOrigins
-    ? {
-        origin: (origin, callback) => {
-          // Allow requests with no origin (server-to-server, curl, etc.)
-          if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-          } else {
-            callback(new Error('Origin not allowed by CORS policy.'));
-          }
-        },
-        methods: ['GET', 'POST'],
-        allowedHeaders: ['Content-Type'],
-      }
-    : {} // dev: allow all origins
-));
+const rawFrontendUrl = process.env.FRONTEND_URL || '';
+const explicitOrigins = rawFrontendUrl
+  ? rawFrontendUrl.split(',').map(u => u.trim()).filter(Boolean)
+  : [];
+
+// Always include localhost for local dev
+const localOrigins = ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:3000'];
+const allowedOrigins = [...explicitOrigins, ...localOrigins];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no Origin header:
+    //   - same-origin browser requests (Vercel co-hosted frontend)
+    //   - server-to-server / curl calls
+    if (!origin) return callback(null, true);
+
+    // Allow any *.vercel.app origin (covers preview & production deployments)
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
+
+    // Allow explicitly listed origins
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // Block everything else
+    callback(new Error('Origin not allowed by CORS policy.'));
+  },
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type'],
+}));
 
 app.use(express.json({ limit: '10kb' })); // SEC-03: limit request body size
 
