@@ -16,22 +16,28 @@ const CustomTooltip = ({ active, payload, label }) => {
     return (
       <div 
         style={{
-          background: 'rgba(15, 17, 26, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          padding: '0.75rem 1rem',
-          borderRadius: '8px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(8px)'
+          background: 'var(--bg-card)',
+          border: '1px solid rgba(255, 255, 255, 0.05)',
+          padding: '0.8rem 1.1rem',
+          borderRadius: '16px',
+          boxShadow: '0 12px 30px rgba(0, 0, 0, 0.6)',
+          backdropFilter: 'blur(10px)',
+          fontFamily: 'var(--sans)'
         }}
       >
-        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.4rem' }}>
+        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
           {label}
         </p>
-        {payload.map((p, idx) => (
-          <p key={idx} style={{ margin: 0, fontSize: '0.9rem', color: p.color, fontWeight: 500 }}>
-            {p.name}: Rp {p.value.toLocaleString('id-ID')}
-          </p>
-        ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          {payload.map((p, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: p.color }} />
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                {p.name}: <span style={{ color: p.color }}>Rp {p.value.toLocaleString('id-ID')}</span>
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -39,7 +45,6 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function ProgressionChart({ chartData }) {
-  // Format Y-axis ticks in Millions
   const formatYAxis = (value) => {
     if (value === 0) return '0';
     return `${(value / 1000000).toFixed(0)}M`;
@@ -47,55 +52,63 @@ export default function ProgressionChart({ chartData }) {
 
   return (
     <div className="chart-wrapper">
-      <ResponsiveContainer width="99%" height={300}>
+      <ResponsiveContainer width="100%" height={300}>
         <AreaChart
           data={chartData}
-          margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
+          margin={{ top: 15, right: 10, left: -20, bottom: 5 }}
         >
           <defs>
             <linearGradient id="colorTarget" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.15}/>
-              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
+              <stop offset="5%" stopColor="var(--color-lavender)" stopOpacity={0.12}/>
+              <stop offset="95%" stopColor="var(--color-lavender)" stopOpacity={0.0}/>
             </linearGradient>
             <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+              <stop offset="5%" stopColor="var(--color-lime)" stopOpacity={0.2}/>
+              <stop offset="95%" stopColor="var(--color-lime)" stopOpacity={0.0}/>
             </linearGradient>
           </defs>
           
           <CartesianGrid 
-            strokeDasharray="3 3" 
-            stroke="rgba(255, 255, 255, 0.02)" 
+            strokeDasharray="4 4" 
+            stroke="rgba(255, 255, 255, 0.015)" 
             vertical={false}
           />
           
           <XAxis 
             dataKey="date" 
-            stroke="#64748b" 
-            fontSize={11}
+            stroke="var(--text-muted)" 
+            fontSize={10}
+            fontWeight={600}
             tickLine={false}
-            dy={10}
+            dy={8}
+            fontFamily="var(--mono)"
           />
           
           <YAxis 
-            stroke="#64748b" 
-            fontSize={11}
+            stroke="var(--text-muted)" 
+            fontSize={10}
+            fontWeight={600}
             tickLine={false}
             tickFormatter={formatYAxis}
             dx={-5}
             domain={[0, 110000000]} // limit to 110M
+            fontFamily="var(--mono)"
           />
           
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255, 255, 255, 0.04)', strokeWidth: 1 }} />
           
           <Legend 
             verticalAlign="top" 
-            height={36}
+            height={40}
             iconType="circle"
-            iconSize={8}
+            iconSize={6}
             wrapperStyle={{
-              fontSize: '0.85rem',
-              color: '#94a3b8'
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              color: 'var(--text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '1.5px',
+              fontFamily: 'var(--sans)'
             }}
           />
 
@@ -104,9 +117,9 @@ export default function ProgressionChart({ chartData }) {
             name="Target Slope"
             type="monotone"
             dataKey="target"
-            stroke="#f59e0b"
+            stroke="var(--color-lavender)"
             strokeWidth={1.5}
-            strokeDasharray="3 3"
+            strokeDasharray="4 4"
             fillOpacity={1}
             fill="url(#colorTarget)"
           />
@@ -116,24 +129,27 @@ export default function ProgressionChart({ chartData }) {
             name="Actual Balance"
             type="monotone"
             dataKey="actual"
-            stroke="#10b981"
-            strokeWidth={2.5}
+            stroke="var(--color-lime)"
+            strokeWidth={2}
             fillOpacity={1}
             fill="url(#colorActual)"
-            activeDot={{ r: 5, strokeWidth: 0, fill: '#10b981' }}
+            activeDot={{ r: 5, strokeWidth: 0, fill: 'var(--color-lime)' }}
           />
 
           {/* Goal Reference Line at 100M */}
           <ReferenceLine 
             y={100000000} 
-            stroke="#f43f5e" 
+            stroke="var(--color-crimson)" 
             strokeDasharray="3 3"
+            strokeWidth={1}
             label={{ 
-              value: "100M Target", 
+              value: "100M Goal Limit", 
               position: "top", 
-              fill: "#f43f5e",
-              fontSize: 10,
-              fontWeight: 600
+              fill: "var(--color-crimson)",
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '1px',
+              fontFamily: 'var(--sans)'
             }} 
           />
         </AreaChart>
