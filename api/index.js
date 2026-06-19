@@ -158,9 +158,7 @@ app.post('/api/bybit/balance', async (req, res) => {
   // We will query both Trading Account(s) (UNIFIED, SPOT, etc.) AND the Funding Account (FUND)
   const accountTypes = process.env.BYBIT_ACCOUNT_TYPES 
     ? process.env.BYBIT_ACCOUNT_TYPES.split(',') 
-    : ['UNIFIED', 'SPOT']; // default to checking both Unified and Spot to cover all account modes!
-
-  const shouldQueryFund = !accountTypes.includes('FUND');
+    : ['UNIFIED', 'SPOT', 'FUND']; // default to checking Unified, Spot, and Funding to cover all modes!
   const recvWindow = '5000';
   const results = [];
   let totalUsdValue = 0;
@@ -231,7 +229,7 @@ app.post('/api/bybit/balance', async (req, res) => {
     }
 
     // 3. Fetch Funding Wallet Balance (FUND)
-    if (shouldQueryFund || accountTypes.includes('FUND')) {
+    if (accountTypes.includes('FUND')) {
       const timestamp = Date.now().toString();
       const queryString = `accountType=FUND`;
       const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
@@ -327,7 +325,7 @@ app.post('/api/bybit/positions', async (req, res) => {
 
   const categories = [
     { category: 'linear', settleCoin: 'USDT' },
-    { category: 'inverse' }
+    { category: 'inverse', settleCoin: 'BTC' }
   ];
   const positions = [];
   const recvWindow = '5000';

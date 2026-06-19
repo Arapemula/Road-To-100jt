@@ -54,6 +54,16 @@ function CountUp({ value, prefix = '', suffix = '', decimals = 0, duration = 1 }
   return <span>{prefix}{formatted}{suffix}</span>;
 }
 
+// Helper to get local date string YYYY-MM-DD from timestamp
+const getLocalDateStr = (timestamp) => {
+  if (!timestamp) return '';
+  const d = new Date(parseInt(timestamp));
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const dy = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${dy}`;
+};
+
 export default function App() {
   // Navigation tab matching the reference top-nav
   const [activeTab, setActiveTab] = useState('overview');
@@ -94,8 +104,7 @@ export default function App() {
 
   // Form states for selected calendar date
   const [selectedDate, setSelectedDate] = useState(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return todayStr;
+    return getLocalDateStr(new Date().getTime());
   });
 
   // Right-hand Panel switcher tab ("assets" vs "journal")
@@ -315,7 +324,7 @@ export default function App() {
         // Record balance history point
         const currentBybitIdr = data.totalUsdValue * exchangeRate;
         const todayStr = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-        const todayKey = new Date().toISOString().split('T')[0];
+        const todayKey = getLocalDateStr(new Date().getTime());
         
         setLiveHistory(prev => {
           const filtered = prev.filter(item => item.dateKey !== todayKey);
@@ -415,15 +424,6 @@ export default function App() {
     calendarDays.push({ isEmpty: false, day, dateStr });
   }
 
-  // Helper to get local date string YYYY-MM-DD from timestamp
-  const getLocalDateStr = (timestamp) => {
-    if (!timestamp) return '';
-    const d = new Date(parseInt(timestamp));
-    const yr = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const dy = String(d.getDate()).padStart(2, '0');
-    return `${yr}-${mo}-${dy}`;
-  };
 
   // Group profits by local date string from Bybit History
   const calendarProfits = bybitHistory.reduce((acc, log) => {
@@ -455,7 +455,7 @@ export default function App() {
 
     for (let dayOffset = 0; dayOffset <= totalDays; dayOffset += 4) {
       const date = new Date(START_DATE.getTime() + dayOffset * 24 * 60 * 60 * 1000);
-      const dateKey = date.toISOString().split('T')[0];
+      const dateKey = getLocalDateStr(date.getTime());
       const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
       
       const targetVal = Math.round(initialTargetVal + targetSlope * dayOffset);
@@ -501,7 +501,7 @@ export default function App() {
     }
 
     const todayStr = today.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-    const todayKey = today.toISOString().split('T')[0];
+    const todayKey = getLocalDateStr(today.getTime());
     const todayIndex = dataPoints.findIndex(d => d.dateKey === todayKey);
     
     if (todayIndex !== -1) {
@@ -815,7 +815,7 @@ export default function App() {
                       <div key={`${log.symbol}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.35rem 0', borderBottom: '1px solid rgba(255,255,255,0.01)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                           <span style={{ fontWeight: 700, color: '#fff' }}>{log.symbol}</span>
-                          <span className={`direction-badge ${log.side === 'Buy' ? 'long' : 'short'}`} style={{ fontSize: '0.5rem', padding: '0.05rem 0.25rem' }}>
+                          <span className={`direction-badge ${log.side === 'Buy' ? 'short' : 'long'}`} style={{ fontSize: '0.5rem', padding: '0.05rem 0.25rem' }}>
                             {log.side === 'Buy' ? 'SHORT' : 'LONG'}
                           </span>
                         </div>
@@ -982,7 +982,7 @@ export default function App() {
                             <div className="crypto-details">
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                 <span className="crypto-name" style={{ fontSize: '0.8rem' }}>{log.symbol}</span>
-                                <span className={`direction-badge ${log.side === 'Buy' ? 'long' : 'short'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
+                                <span className={`direction-badge ${log.side === 'Buy' ? 'short' : 'long'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
                                   {log.side === 'Buy' ? 'CLOSE SHORT' : 'CLOSE LONG'}
                                 </span>
                               </div>
