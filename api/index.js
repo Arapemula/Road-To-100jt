@@ -50,15 +50,44 @@ async function callBybit(endpoint, headers, method = 'GET', data = null) {
   }
 }
 
-// Route to get USD to IDR conversion rate
+// Route to get USD to IDR conversion rate (Bybit P2P Rate first, with fallback)
 app.get('/api/rates', async (req, res) => {
   try {
-    const response = await axios.get('https://open.er-api.com/v6/latest/USD');
+    // 1. Try to get USDT/IDR P2P price from Bybit P2P API
+    try {
+      const p2pResponse = await axios.post('https://api2.bybit.com/fiat/otc/item/online', {
+        tokenId: 'USDT',
+        currencyId: 'IDR',
+        side: '1', // 1 = Buy (we want to check what price sellers are offering, which represents USDT price in IDR)
+        size: '5',
+        page: '1',
+      }, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        timeout: 5000 // 5 seconds timeout
+      });
+
+      if (p2pResponse.data?.result?.items && p2pResponse.data.result.items.length > 0) {
+        const rate = parseFloat(p2pResponse.data.result.items[0].price);
+        if (rate > 10000 && rate < 25000) { // sanity check
+          console.log(`Successfully fetched Bybit P2P rate: Rp ${rate}`);
+          return res.json({ success: true, rate, source: 'bybit_p2p' });
+        }
+      }
+    } catch (p2pError) {
+      console.warn('Bybit P2P rate fetch failed:', p2pError.message);
+    }
+
+    // 2. Fallback to general ExchangeRate API if P2P fails
+    const response = await axios.get('https://open.er-api.com/v6/latest/USD', { timeout: 5000 });
     const rate = response.data?.rates?.IDR || 16400; // fallback to 16,400 IDR/USD if missing
-    res.json({ success: true, rate });
+    res.json({ success: true, rate, source: 'er-api' });
   } catch (error) {
-    console.error('Error fetching exchange rates:', error.message);
-    res.json({ success: false, rate: 16400, message: 'Using fallback exchange rate' });
+    console.error('Error fetching fallback exchange rates:', error.message);
+    res.json({ success: false, rate: 16400, message: 'Using default fallback exchange rate', source: 'default' });
   }
 });
 

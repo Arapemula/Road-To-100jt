@@ -439,6 +439,14 @@ export default function App() {
     .filter(log => getLocalDateStr(log.createdTime) === selectedDate)
     .reduce((sum, log) => sum + parseFloat(log.closedPnl || '0'), 0);
 
+  // Get today's local date key
+  const todayKey = getLocalDateStr(new Date().getTime());
+  // Calculate today's profit in USD and IDR
+  const todayProfitUsd = calendarProfits[todayKey] || 0;
+  const todayProfitIdr = todayProfitUsd * exchangeRate;
+  // Check if daily target is met
+  const todayTargetMet = todayProfitIdr >= dailyTargetRequired;
+
   // Chart Data Generator
   const getChartData = () => {
     const dataPoints = [];
@@ -569,11 +577,6 @@ export default function App() {
               Insights
             </button>
 
-
-            {/* Daily Profit Target Badge */}
-            <div className="badge-pill" style={{ background: 'rgba(255, 59, 48, 0.1)', color: 'var(--color-crimson)', padding: '0.4rem 0.8rem', borderRadius: '30px', fontSize: '0.75rem', fontWeight: 700, fontFamily: 'var(--mono)', border: '1px solid rgba(255, 59, 48, 0.2)' }}>
-              🎯 Target: Rp {Math.round(dailyTargetRequired).toLocaleString('id-ID')}/Hari
-            </div>
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -619,8 +622,8 @@ export default function App() {
           </div>
         </header>
 
-        {/* Grid 3x Cards Layout (Matching reference card blocks) */}
-        <section className="grid-3x card-animate">
+        {/* Grid 4x Cards Layout (Matching reference card blocks) */}
+        <section className="grid-4x card-animate">
           {/* Card 1: Consolidated Equity */}
           <div className="reference-card">
             <div className="card-top">
@@ -670,7 +673,29 @@ export default function App() {
                 <CountUp value={progressPercentage} decimals={1} />%
               </div>
               <span className="card-subtext">
-                Target: Rp 100M | Gap: Rp <CountUp value={remainingNeeded} /> | Butuh: Rp <CountUp value={dailyTargetRequired} />/hari
+                Target: Rp 100M | Gap: Rp <CountUp value={remainingNeeded} />
+              </span>
+            </div>
+          </div>
+
+          {/* Card 4: Daily Target Required Card */}
+          <div className={`reference-card ${todayTargetMet ? 'lime-accent' : ''}`}>
+            <div className="card-top">
+              <span className="card-title">Daily Target Required</span>
+              <div className="arrow-btn">
+                🎯
+              </div>
+            </div>
+            <div>
+              <div className="card-value">
+                Rp <CountUp value={dailyTargetRequired} />
+              </div>
+              <span className="card-subtext">
+                {todayTargetMet ? (
+                  `🎉 Target Terpenuhi! Hari ini: +Rp ${Math.round(todayProfitIdr).toLocaleString('id-ID')}`
+                ) : (
+                  `Progress: Rp ${Math.round(todayProfitIdr).toLocaleString('id-ID')} (Rp ${Math.round(Math.max(0, dailyTargetRequired - todayProfitIdr)).toLocaleString('id-ID')} lagi)`
+                )}
               </span>
             </div>
           </div>
@@ -755,6 +780,9 @@ export default function App() {
                   <span className="label-muted">PROFIT/LOSS DELTA</span>
                   <div className={`text-number`} style={{ fontSize: '1rem', fontWeight: 700, color: selectedDayTotal > 0 ? 'var(--color-green-profit)' : (selectedDayTotal < 0 ? 'var(--color-crimson)' : 'var(--text-secondary)') }}>
                     {selectedDayTotal > 0 ? '+' : ''}${selectedDayTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: selectedDayTotal > 0 ? 'var(--color-green-profit)' : (selectedDayTotal < 0 ? 'var(--color-crimson)' : 'var(--text-secondary)'), opacity: 0.85, fontFamily: 'var(--mono)' }}>
+                    {selectedDayTotal > 0 ? '+' : ''}Rp {Math.round(selectedDayTotal * exchangeRate).toLocaleString('id-ID')}
                   </div>
                 </div>
               </div>
