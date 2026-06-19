@@ -862,7 +862,7 @@ export default function App() {
 
               {/* Tab Content: Bybit Assets */}
               {rightPanelTab === 'assets' && (
-                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
                   {activeCoins.map(c => {
                     const allocationPct = currentBybitUsd > 0 ? (c.usdValue / currentBybitUsd) * 100 : 0;
                     return (
@@ -890,7 +890,7 @@ export default function App() {
 
               {/* Tab Content: Active Positions */}
               {rightPanelTab === 'positions' && (
-                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
                   {positionsLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
                       <RefreshCw size={20} className="spin-anim" />
@@ -957,7 +957,7 @@ export default function App() {
 
               {/* Tab Content: Bybit Closed PnL History */}
               {rightPanelTab === 'history' && (
-                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ flex: 1, overflowY: 'auto' }}>
                   {historyLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
                       <RefreshCw size={20} className="spin-anim" />
