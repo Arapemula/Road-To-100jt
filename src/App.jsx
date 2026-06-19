@@ -59,7 +59,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
 
   // Mode & Load States
-  const [mode, setMode] = useState(() => localStorage.getItem('app_mode') || 'demo');
+  const [mode, setMode] = useState('live');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
@@ -83,14 +83,6 @@ export default function App() {
     }
   });
 
-  // Demo prices simulation
-  const [demoPrices, setDemoPrices] = useState({
-    BTC: 67250,
-    ETH: 3540,
-    SOL: 146.2,
-    USDT: 1.00
-  });
-
   const [liveHistory, setLiveHistory] = useState(() => {
     try {
       const saved = localStorage.getItem('balance_history');
@@ -104,11 +96,7 @@ export default function App() {
   const [tradeLogs, setTradeLogs] = useState(() => {
     try {
       const saved = localStorage.getItem('trade_logs');
-      return saved ? JSON.parse(saved) : [
-        { id: '1', date: '2026-06-18', coin: 'BTC', direction: 'LONG', profit: 240 },
-        { id: '2', date: '2026-06-15', coin: 'ETH', direction: 'SHORT', profit: -120 },
-        { id: '3', date: '2026-06-12', coin: 'SOL', direction: 'LONG', profit: 180 }
-      ];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -140,19 +128,7 @@ export default function App() {
     });
   };
 
-  // Tickers price simulation in Demo Mode
-  useEffect(() => {
-    if (mode !== 'demo') return;
-    const interval = setInterval(() => {
-      setDemoPrices(prev => ({
-        BTC: prev.BTC * (1 + (Math.random() - 0.5) * 0.0006),
-        ETH: prev.ETH * (1 + (Math.random() - 0.5) * 0.0008),
-        SOL: prev.SOL * (1 + (Math.random() - 0.5) * 0.0015),
-        USDT: 1.00
-      }));
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [mode]);
+
 
   // Entrance Stagger Animation
   useGSAP(() => {
@@ -348,7 +324,7 @@ export default function App() {
   };
 
   // Financial calculations
-  const currentBybitUsd = mode === 'demo' ? 2450 : bybitBalanceUsd;
+  const currentBybitUsd = bybitBalanceUsd;
   const calendarProfitSumUsd = tradeLogs.reduce((sum, log) => sum + log.profit, 0);
   
   // Consolidated balance (Bybit + Calendar profit)
@@ -392,19 +368,7 @@ export default function App() {
   const idealDiff = totalActualBalance - targetValToday;
   const idealDiffPct = targetValToday > 0 ? (idealDiff / targetValToday) * 100 : 0;
 
-  // Mock vs real coins
-  const demoCoins = [
-    { coin: 'BTC', balance: 0.021, price: demoPrices.BTC },
-    { coin: 'ETH', balance: 0.18, price: demoPrices.ETH },
-    { coin: 'SOL', balance: 1.6, price: demoPrices.SOL },
-    { coin: 'USDT', balance: 170.50, price: demoPrices.USDT }
-  ].map(c => ({
-    coin: c.coin,
-    walletBalance: c.balance,
-    usdValue: c.balance * c.price
-  }));
-
-  const activeCoins = mode === 'demo' ? demoCoins : bybitCoins;
+  const activeCoins = bybitCoins;
 
   // Trading Calendar grid math
   const getDaysInMonth = () => {
@@ -464,39 +428,29 @@ export default function App() {
       const targetVal = Math.round(initialTargetVal + targetSlope * dayOffset);
       let actualVal = null;
 
-      if (mode === 'demo') {
-        const daysFromStart = Math.ceil((today.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
-        if (dayOffset <= daysFromStart) {
-          const frac = dayOffset / daysFromStart;
-          const base = 15000000 + (totalActualBalance - 15000000) * frac;
-          const sineNoise = Math.sin(dayOffset * 0.45) * 1800000;
-          actualVal = Math.round(base + sineNoise);
-        }
-      } else {
-        const daysFromStart = Math.ceil((today.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
-        if (dayOffset <= daysFromStart) {
-          if (liveHistory.length > 0) {
-            const closest = [...liveHistory]
-              .reverse()
-              .find(h => h.dateKey <= dateKey);
-            
-            if (closest) {
-              actualVal = closest.amount;
-            } else {
-              const oldestPoint = liveHistory[0];
-              const oldestDate = new Date(oldestPoint.dateKey);
-              const totalDaysToOldest = Math.max(1, Math.ceil((oldestDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24)));
-              const currentDate = new Date(dateKey);
-              const daysFromStartPoint = Math.ceil((currentDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
-              const frac = Math.max(0, Math.min(1, daysFromStartPoint / totalDaysToOldest));
-              const startVal = 28000000;
-              actualVal = Math.round(startVal + (oldestPoint.amount - startVal) * frac);
-            }
+      const daysFromStart = Math.ceil((today.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
+      if (dayOffset <= daysFromStart) {
+        if (liveHistory.length > 0) {
+          const closest = [...liveHistory]
+            .reverse()
+            .find(h => h.dateKey <= dateKey);
+          
+          if (closest) {
+            actualVal = closest.amount;
           } else {
-            const frac = dayOffset / daysFromStart;
-            const base = 28000000 + (totalActualBalance - 28000000) * frac;
-            actualVal = Math.round(base);
+            const oldestPoint = liveHistory[0];
+            const oldestDate = new Date(oldestPoint.dateKey);
+            const totalDaysToOldest = Math.max(1, Math.ceil((oldestDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24)));
+            const currentDate = new Date(dateKey);
+            const daysFromStartPoint = Math.ceil((currentDate.getTime() - START_DATE.getTime()) / (1000 * 60 * 60 * 24));
+            const frac = Math.max(0, Math.min(1, daysFromStartPoint / totalDaysToOldest));
+            const startVal = 28000000;
+            actualVal = Math.round(startVal + (oldestPoint.amount - startVal) * frac);
           }
+        } else {
+          const frac = dayOffset / daysFromStart;
+          const base = 28000000 + (totalActualBalance - 28000000) * frac;
+          actualVal = Math.round(base);
         }
       }
 
@@ -588,15 +542,7 @@ export default function App() {
             >
               Insights
             </button>
-            <button 
-              className="nav-link"
-              onClick={() => {
-                setMode(prev => prev === 'demo' ? 'live' : 'demo');
-                if (mode === 'demo') fetchLiveBalance();
-              }}
-            >
-              Mode: {mode.toUpperCase()}
-            </button>
+
 
             {/* Daily Profit Target Badge */}
             <div className="badge-pill" style={{ background: 'rgba(255, 59, 48, 0.1)', color: 'var(--color-crimson)', padding: '0.4rem 0.8rem', borderRadius: '30px', fontSize: '0.75rem', fontWeight: 700, fontFamily: 'var(--mono)', border: '1px solid rgba(255, 59, 48, 0.2)' }}>
