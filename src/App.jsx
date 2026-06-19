@@ -737,10 +737,10 @@ export default function App() {
             <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div className="calendar-header">
                 <div>
-                  <h2 style={{ fontSize: '0.85rem' }}>Trading Calendar</h2>
-                  <span className="label-muted" style={{ display: 'block', marginTop: '0.15rem' }}>Pilih tanggal untuk log profit</span>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.02em' }}>Trading Calendar</h2>
+                  <span className="label-muted" style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.78rem' }}>PILIH TANGGAL UNTUK LOG PROFIT</span>
                 </div>
-                <span className="badge-pill" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-lime)', fontFamily: 'var(--mono)' }}>
+                <span className="badge-pill" style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--color-lime)', fontFamily: 'var(--mono)', padding: '0.35rem 0.85rem' }}>
                   {monthName.toUpperCase()}
                 </span>
               </div>
