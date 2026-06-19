@@ -435,9 +435,8 @@ export default function App() {
   }, {});
 
   // Get selected day profit logs from Bybit History
-  const selectedDayTotal = bybitHistory
-    .filter(log => getLocalDateStr(log.createdTime) === selectedDate)
-    .reduce((sum, log) => sum + parseFloat(log.closedPnl || '0'), 0);
+  const selectedDayTrades = bybitHistory.filter(log => getLocalDateStr(log.createdTime) === selectedDate);
+  const selectedDayTotal = selectedDayTrades.reduce((sum, log) => sum + parseFloat(log.closedPnl || '0'), 0);
 
   // Get today's local date key
   const todayKey = getLocalDateStr(new Date().getTime());
@@ -628,8 +627,13 @@ export default function App() {
           <div className="reference-card">
             <div className="card-top">
               <span className="card-title">Consolidated Equity</span>
-              <button className="arrow-btn" onClick={() => mode === 'live' && fetchLiveBalance()}>
-                <RefreshCw size={13} className={loading ? 'spin-anim' : ''} />
+              <button 
+                onClick={() => mode === 'live' && fetchLiveBalance()}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', transition: 'color 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+              >
+                <RefreshCw size={14} className={loading ? 'spin-anim' : ''} />
               </button>
             </div>
             <div>
@@ -646,9 +650,6 @@ export default function App() {
           <div className="reference-card">
             <div className="card-top">
               <span className="card-title">Win Rate Telemetry</span>
-              <div className="arrow-btn">
-                <ArrowUpRight size={14} />
-              </div>
             </div>
             <div>
               <div className="card-value">
@@ -663,16 +664,13 @@ export default function App() {
           {/* Card 3: Highlighted Lime Green Card for Milestone Completed */}
           <div className="reference-card lime-accent">
             <div className="card-top">
-              <span className="card-title">Milestone Progress</span>
-              <button className="arrow-btn" onClick={celebrate}>
-                🎉
-              </button>
+              <span className="card-title" style={{ color: 'rgba(0,0,0,0.6)' }}>Milestone Progress</span>
             </div>
             <div>
               <div className="card-value">
                 <CountUp value={progressPercentage} decimals={1} />%
               </div>
-              <span className="card-subtext">
+              <span className="card-subtext" style={{ color: 'rgba(0,0,0,0.6)' }}>
                 Target: Rp 100M | Gap: Rp <CountUp value={remainingNeeded} />
               </span>
             </div>
@@ -681,22 +679,41 @@ export default function App() {
           {/* Card 4: Daily Target Required Card */}
           <div className={`reference-card ${todayTargetMet ? 'lime-accent' : ''}`}>
             <div className="card-top">
-              <span className="card-title">Daily Target Required</span>
-              <div className="arrow-btn">
-                🎯
-              </div>
+              <span className="card-title" style={{ color: todayTargetMet ? 'rgba(0,0,0,0.6)' : 'var(--text-secondary)' }}>Daily Target Required</span>
             </div>
             <div>
-              <div className="card-value">
+              <div className="card-value" style={{ color: todayTargetMet ? '#000' : 'var(--text-titanium)' }}>
                 Rp <CountUp value={dailyTargetRequired} />
               </div>
-              <span className="card-subtext">
+              <span className="card-subtext" style={{ color: todayTargetMet ? 'rgba(0,0,0,0.6)' : 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>
                 {todayTargetMet ? (
-                  `🎉 Target Terpenuhi! Hari ini: +Rp ${Math.round(todayProfitIdr).toLocaleString('id-ID')}`
+                  `🎉 Terpenuhi! Hari ini: +Rp ${Math.round(todayProfitIdr).toLocaleString('id-ID')}`
                 ) : (
                   `Progress: Rp ${Math.round(todayProfitIdr).toLocaleString('id-ID')} (Rp ${Math.round(Math.max(0, dailyTargetRequired - todayProfitIdr)).toLocaleString('id-ID')} lagi)`
                 )}
               </span>
+
+              {/* Progress Bar */}
+              {(() => {
+                const progressPct = dailyTargetRequired > 0 ? Math.min(100, Math.max(0, (todayProfitIdr / dailyTargetRequired) * 100)) : (todayProfitIdr > 0 ? 100 : 0);
+                return (
+                  <div style={{ marginTop: '0.4rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: todayTargetMet ? 'rgba(0,0,0,0.6)' : 'var(--text-secondary)', marginBottom: '0.2rem', fontWeight: 600, fontFamily: 'var(--mono)' }}>
+                      <span>Progress</span>
+                      <span>{progressPct.toFixed(1)}%</span>
+                    </div>
+                    <div style={{ width: '100%', background: todayTargetMet ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.05)', borderRadius: '10px', height: '6px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        width: `${progressPct}%`, 
+                        background: todayTargetMet ? '#000' : 'var(--color-lime)', 
+                        height: '100%', 
+                        borderRadius: '10px',
+                        transition: 'width 0.5s ease-out'
+                      }} />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </section>
@@ -786,6 +803,35 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Trade History for selected date */}
+              {selectedDayTrades.length > 0 && (
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                  <span className="label-muted" style={{ fontSize: '0.6rem', display: 'block', marginBottom: '0.2rem' }}>trades for this day</span>
+                  {selectedDayTrades.map((log, index) => {
+                    const pnl = parseFloat(log.closedPnl || '0');
+                    const pnlIdr = pnl * exchangeRate;
+                    return (
+                      <div key={`${log.symbol}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.35rem 0', borderBottom: '1px solid rgba(255,255,255,0.01)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 700, color: '#fff' }}>{log.symbol}</span>
+                          <span className={`direction-badge ${log.side === 'Buy' ? 'long' : 'short'}`} style={{ fontSize: '0.5rem', padding: '0.05rem 0.25rem' }}>
+                            {log.side === 'Buy' ? 'SHORT' : 'LONG'}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                          <span style={{ fontWeight: 600, color: pnl >= 0 ? 'var(--color-green-profit)' : 'var(--color-crimson)' }}>
+                            {pnl >= 0 ? '+' : ''}${pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', display: 'block', color: pnl >= 0 ? 'var(--color-green-profit)' : 'var(--color-crimson)', opacity: 0.8 }}>
+                            {pnl >= 0 ? '+' : ''}Rp {Math.round(pnlIdr).toLocaleString('id-ID')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* Asset Distribution & Trade Journal switcher */}
