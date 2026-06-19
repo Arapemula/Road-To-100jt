@@ -8,8 +8,67 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+// SEC-01: Restrict CORS to allowed origin(s).
+// Set FRONTEND_URL env var in Vercel to your deployment URL (e.g. https://your-app.vercel.app)
+// In local dev (no FRONTEND_URL set), all origins are allowed as a fallback.
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:4173']
+  : null;
+
+app.use(cors(
+  allowedOrigins
+    ? {
+        origin: (origin, callback) => {
+          // Allow requests with no origin (server-to-server, curl, etc.)
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error('Origin not allowed by CORS policy.'));
+          }
+        },
+        methods: ['GET', 'POST'],
+        allowedHeaders: ['Content-Type'],
+      }
+    : {} // dev: allow all origins
+));
+
+app.use(express.json({ limit: '10kb' })); // SEC-03: limit request body size
+
+// SEC-02: Simple in-memory rate limiter (no external dependency needed).
+// Limits each IP to maxRequests per windowMs on protected routes.
+const rateLimitStore = new Map();
+
+function createRateLimiter(maxRequests = 15, windowMs = 60000) {
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const windowStart = now - windowMs;
+
+    const timestamps = (rateLimitStore.get(ip) || []).filter(t => t > windowStart);
+
+    if (timestamps.length >= maxRequests) {
+      return res.status(429).json({
+        success: false,
+        error: 'Terlalu banyak permintaan. Coba lagi dalam semenit.'
+      });
+    }
+
+    timestamps.push(now);
+    rateLimitStore.set(ip, timestamps);
+
+    // Cleanup store periodically to prevent unbounded memory growth
+    if (Math.random() < 0.01) {
+      for (const [key, times] of rateLimitStore.entries()) {
+        if (times.every(t => t <= windowStart)) rateLimitStore.delete(key);
+      }
+    }
+
+    next();
+  };
+}
+
+// Apply rate limiter to all /api/bybit/* routes (sensitive, hits external API)
+const bybitLimiter = createRateLimiter(15, 60000); // 15 req/min per IP
 
 // Helper to generate Bybit API v5 HMAC Signature
 function generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString) {
@@ -24,10 +83,7 @@ async function callBybit(endpoint, headers, method = 'GET', data = null) {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   };
 
-  const config = {
-    method,
-    headers: customHeaders,
-  };
+  const config = { method, headers: customHeaders };
   if (data) config.data = data;
 
   try {
@@ -38,16 +94,30 @@ async function callBybit(endpoint, headers, method = 'GET', data = null) {
     const is403OrNetworkErr = !err.response || err.response.status === 403;
     if (is403OrNetworkErr) {
       console.warn(`Bybit primary domain failed (${err.message}). Retrying with api.bytick.com...`);
-      try {
-        config.url = `https://api.bytick.com${endpoint}`;
-        return await axios(config);
-      } catch (retryErr) {
-        throw retryErr;
-      }
-    } else {
-      throw err;
+      config.url = `https://api.bytick.com${endpoint}`;
+      return await axios(config);
     }
+    throw err;
   }
+}
+
+// SEC-04: Sanitize error messages before sending to client.
+// Never expose raw Bybit internal error codes or server-side details directly.
+function sanitizeError(err) {
+  if (!err) return 'Terjadi kesalahan yang tidak diketahui.';
+  const msg = String(err);
+  // Pass through known safe user-facing messages; hide the rest
+  if (msg.includes('API key') || msg.includes('signature') || msg.includes('timestamp')) {
+    return 'Autentikasi Bybit gagal. Periksa API key dan secret Anda.';
+  }
+  if (msg.includes('network') || msg.includes('ECONNREFUSED') || msg.includes('timeout')) {
+    return 'Gagal terhubung ke Bybit. Periksa koneksi internet Anda.';
+  }
+  if (msg.includes('10001') || msg.includes('10003') || msg.includes('10004')) {
+    return 'Autentikasi Bybit gagal. API key mungkin tidak valid atau tidak memiliki izin.';
+  }
+  // For unknown errors, return a generic message instead of the raw error
+  return 'Bybit API mengembalikan error. Coba lagi nanti.';
 }
 
 // Route to get USD to IDR conversion rate (Bybit P2P Rate first, with fallback)
@@ -58,7 +128,7 @@ app.get('/api/rates', async (req, res) => {
       const p2pResponse = await axios.post('https://api2.bybit.com/fiat/otc/item/online', {
         tokenId: 'USDT',
         currencyId: 'IDR',
-        side: '1', // 1 = Buy (we want to check what price sellers are offering, which represents USDT price in IDR)
+        side: '1', // 1 = Buy side (seller's asking price = USDT price in IDR)
         size: '5',
         page: '1',
       }, {
@@ -67,7 +137,7 @@ app.get('/api/rates', async (req, res) => {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        timeout: 5000 // 5 seconds timeout
+        timeout: 5000
       });
 
       if (p2pResponse.data?.result?.items && p2pResponse.data.result.items.length > 0) {
@@ -81,9 +151,9 @@ app.get('/api/rates', async (req, res) => {
       console.warn('Bybit P2P rate fetch failed:', p2pError.message);
     }
 
-    // 2. Fallback to general ExchangeRate API if P2P fails
+    // 2. Fallback to ExchangeRate API
     const response = await axios.get('https://open.er-api.com/v6/latest/USD', { timeout: 5000 });
-    const rate = response.data?.rates?.IDR || 16400; // fallback to 16,400 IDR/USD if missing
+    const rate = response.data?.rates?.IDR || 16400;
     res.json({ success: true, rate, source: 'er-api' });
   } catch (error) {
     console.error('Error fetching fallback exchange rates:', error.message);
@@ -91,13 +161,15 @@ app.get('/api/rates', async (req, res) => {
   }
 });
 
-// Route to check if Bybit API keys are configured on the server side (.env or Vercel env)
+// Route to check if Bybit API keys are configured on the server side
 app.get('/api/bybit/config', (req, res) => {
   const hasServerKeys = !!(process.env.BYBIT_API_KEY && process.env.BYBIT_API_SECRET);
   res.json({
     success: true,
     hasServerKeys,
     accountTypes: process.env.BYBIT_ACCOUNT_TYPES ? process.env.BYBIT_ACCOUNT_TYPES.split(',') : ['UNIFIED']
+    // NOTE: BYBIT_IS_TESTNET env var is defined in .env.example but not yet implemented.
+    // All requests always go to the production Bybit API endpoints.
   });
 });
 
@@ -105,12 +177,7 @@ app.get('/api/bybit/config', (req, res) => {
 async function getSpotPrices() {
   const priceMap = {};
   // Stablecoins are always 1 USD
-  priceMap['USDT'] = 1.0;
-  priceMap['USDC'] = 1.0;
-  priceMap['BUSD'] = 1.0;
-  priceMap['DAI'] = 1.0;
-  priceMap['USD'] = 1.0;
-  priceMap['USDE'] = 1.0;
+  ['USDT', 'USDC', 'BUSD', 'DAI', 'USD', 'USDE'].forEach(s => { priceMap[s] = 1.0; });
 
   try {
     let response;
@@ -143,34 +210,32 @@ async function getSpotPrices() {
   return priceMap;
 }
 
-// Route to fetch Bybit balance securely on the server-side (using Vercel Env)
-app.post('/api/bybit/balance', async (req, res) => {
+// Route to fetch Bybit balance securely on the server-side
+app.post('/api/bybit/balance', bybitLimiter, async (req, res) => {
   const apiKey = process.env.BYBIT_API_KEY;
   const apiSecret = process.env.BYBIT_API_SECRET;
-  
+
   if (!apiKey || !apiSecret) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Bybit API keys are missing on the server-side environment variables.' 
+    return res.status(400).json({
+      success: false,
+      error: 'Konfigurasi API Bybit tidak ditemukan di server.'
     });
   }
 
-  // We will query both Trading Account(s) (UNIFIED, SPOT, etc.) AND the Funding Account (FUND)
-  const accountTypes = process.env.BYBIT_ACCOUNT_TYPES 
-    ? process.env.BYBIT_ACCOUNT_TYPES.split(',') 
-    : ['UNIFIED', 'SPOT', 'FUND']; // default to checking Unified, Spot, and Funding to cover all modes!
+  const accountTypes = process.env.BYBIT_ACCOUNT_TYPES
+    ? process.env.BYBIT_ACCOUNT_TYPES.split(',')
+    : ['UNIFIED', 'SPOT', 'FUND'];
   const recvWindow = '5000';
   const results = [];
   let totalUsdValue = 0;
 
   try {
-    // 1. Fetch spot prices for coin-to-USD conversion of Funding assets
     const spotPrices = await getSpotPrices();
 
-    // 2. Fetch balances for Trading Accounts (UNIFIED, SPOT, etc.)
+    // Fetch balances for Trading Accounts (UNIFIED, SPOT, etc.)
     for (const accountType of accountTypes) {
-      if (accountType === 'FUND') continue; // We will handle FUND separately below
-      
+      if (accountType === 'FUND') continue;
+
       const timestamp = Date.now().toString();
       const queryString = `accountType=${accountType}`;
       const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
@@ -189,7 +254,7 @@ app.post('/api/bybit/balance', async (req, res) => {
         if (data.retCode === 0 && data.result?.list) {
           const accountData = data.result.list[0];
           let equity = parseFloat(accountData.totalEquity || accountData.totalWalletBalance || '0');
-          
+
           const coins = (accountData.coin || []).map(c => ({
             coin: c.coin,
             equity: parseFloat(c.equity || '0'),
@@ -197,25 +262,18 @@ app.post('/api/bybit/balance', async (req, res) => {
             walletBalance: parseFloat(c.walletBalance || '0')
           }));
 
-          // If totalEquity is 0 but we have coins, let's sum their usdValue
           if (equity === 0 && coins.length > 0) {
             equity = coins.reduce((sum, c) => sum + c.usdValue, 0);
           }
 
           totalUsdValue += equity;
-
-          results.push({
-            accountType,
-            equity,
-            coins,
-            success: true
-          });
+          results.push({ accountType, equity, coins, success: true });
         } else {
-          // Keep failure info but do not block other accounts
           results.push({
             accountType,
             success: false,
-            error: data.retMsg || `Error code ${data.retCode}`
+            // SEC-04: Use sanitized error
+            error: sanitizeError(data.retMsg || `Error code ${data.retCode}`)
           });
         }
       } catch (err) {
@@ -223,12 +281,12 @@ app.post('/api/bybit/balance', async (req, res) => {
         results.push({
           accountType,
           success: false,
-          error: err.response?.data?.retMsg || err.message
+          error: sanitizeError(err.response?.data?.retMsg || err.message)
         });
       }
     }
 
-    // 3. Fetch Funding Wallet Balance (FUND)
+    // Fetch Funding Wallet Balance (FUND)
     if (accountTypes.includes('FUND')) {
       const timestamp = Date.now().toString();
       const queryString = `accountType=FUND`;
@@ -254,30 +312,19 @@ app.post('/api/bybit/balance', async (req, res) => {
             const amount = parseFloat(item.walletBalance || '0');
             if (amount <= 0) continue;
 
-            // Get USD price of this coin
             const price = spotPrices[coinName] || 0;
             const usdVal = amount * price;
-
             fundEquity += usdVal;
-            coins.push({
-              coin: coinName,
-              walletBalance: amount,
-              usdValue: usdVal
-            });
+            coins.push({ coin: coinName, walletBalance: amount, usdValue: usdVal });
           }
 
           totalUsdValue += fundEquity;
-          results.push({
-            accountType: 'FUND',
-            equity: fundEquity,
-            coins,
-            success: true
-          });
+          results.push({ accountType: 'FUND', equity: fundEquity, coins, success: true });
         } else {
           results.push({
             accountType: 'FUND',
             success: false,
-            error: data.retMsg || `Error code ${data.retCode}`
+            error: sanitizeError(data.retMsg || `Error code ${data.retCode}`)
           });
         }
       } catch (err) {
@@ -285,12 +332,11 @@ app.post('/api/bybit/balance', async (req, res) => {
         results.push({
           accountType: 'FUND',
           success: false,
-          error: err.response?.data?.retMsg || err.message
+          error: sanitizeError(err.response?.data?.retMsg || err.message)
         });
       }
     }
 
-    // If all queried accounts returned errors (failed to authenticate or connect), return success: false
     const succeeded = results.some(r => r.success);
     if (!succeeded && results.length > 0) {
       return res.status(400).json({
@@ -299,27 +345,23 @@ app.post('/api/bybit/balance', async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      totalUsdValue,
-      accounts: results
-    });
+    res.json({ success: true, totalUsdValue, accounts: results });
 
   } catch (error) {
     console.error('Bybit Balance Serverless Error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: sanitizeError(error.message) });
   }
 });
 
-// Route to fetch Bybit active positions securely (using server-side API keys)
-app.post('/api/bybit/positions', async (req, res) => {
+// Route to fetch Bybit active positions securely
+app.post('/api/bybit/positions', bybitLimiter, async (req, res) => {
   const apiKey = process.env.BYBIT_API_KEY;
   const apiSecret = process.env.BYBIT_API_SECRET;
 
   if (!apiKey || !apiSecret) {
     return res.status(400).json({
       success: false,
-      error: 'Bybit API keys are missing on the server-side environment variables.'
+      error: 'Konfigurasi API Bybit tidak ditemukan di server.'
     });
   }
 
@@ -349,7 +391,6 @@ app.post('/api/bybit/positions', async (req, res) => {
         const response = await callBybit(`/v5/position/list?${queryString}`, headers);
         const data = response.data;
         if (data.retCode === 0 && data.result?.list) {
-          // filter active positions where size > 0
           const active = data.result.list.filter(p => parseFloat(p.size || '0') > 0);
           positions.push(...active);
         }
@@ -358,25 +399,22 @@ app.post('/api/bybit/positions', async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      positions
-    });
+    res.json({ success: true, positions });
   } catch (error) {
     console.error('Bybit Positions Serverless Error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: sanitizeError(error.message) });
   }
 });
 
 // Route to fetch Bybit closed PnL (trade history) securely
-app.post('/api/bybit/closed-pnl', async (req, res) => {
+app.post('/api/bybit/closed-pnl', bybitLimiter, async (req, res) => {
   const apiKey = process.env.BYBIT_API_KEY;
   const apiSecret = process.env.BYBIT_API_SECRET;
 
   if (!apiKey || !apiSecret) {
     return res.status(400).json({
       success: false,
-      error: 'Bybit API keys are missing on the server-side environment variables.'
+      error: 'Konfigurasi API Bybit tidak ditemukan di server.'
     });
   }
 
@@ -411,15 +449,11 @@ app.post('/api/bybit/closed-pnl', async (req, res) => {
     // Sort by createdTime descending (newest first)
     history.sort((a, b) => parseInt(b.createdTime || '0') - parseInt(a.createdTime || '0'));
 
-    res.json({
-      success: true,
-      history
-    });
+    res.json({ success: true, history });
   } catch (error) {
     console.error('Bybit Closed PnL Serverless Error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: sanitizeError(error.message) });
   }
 });
 
 export default app;
-
