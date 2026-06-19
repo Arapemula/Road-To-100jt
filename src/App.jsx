@@ -92,16 +92,6 @@ export default function App() {
     }
   });
 
-  // Trading Calendar & Trade Log States
-  const [tradeLogs, setTradeLogs] = useState(() => {
-    try {
-      const saved = localStorage.getItem('trade_logs');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // Form states for selected calendar date
   const [selectedDate, setSelectedDate] = useState(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -209,10 +199,6 @@ export default function App() {
     }
   }, [isLockedByServer]);
 
-  // Persists
-  useEffect(() => {
-    localStorage.setItem('trade_logs', JSON.stringify(tradeLogs));
-  }, [tradeLogs]);
 
   useEffect(() => {
     localStorage.setItem('app_mode', mode);
@@ -299,39 +285,6 @@ export default function App() {
       const data = await res.json();
 
       if (data.success) {
-        // Auto-log delta profit on Bybit Balance Sync
-        const previousBalanceUsdStr = localStorage.getItem('bybit_balance_usd');
-        const previousBalanceUsd = previousBalanceUsdStr ? parseFloat(previousBalanceUsdStr) : 0;
-        
-        if (previousBalanceUsd > 0 && Math.abs(data.totalUsdValue - previousBalanceUsd) > 0.1) {
-          const diffUsd = data.totalUsdValue - previousBalanceUsd;
-          const todayKey = new Date().toISOString().split('T')[0];
-          
-          const hasSyncToday = tradeLogs.some(log => log.date === todayKey && log.coin === 'BYBIT_SYNC');
-          if (!hasSyncToday) {
-            const autoLog = {
-              id: 'sync-' + Date.now(),
-              date: todayKey,
-              coin: 'BYBIT_SYNC',
-              direction: diffUsd > 0 ? 'LONG' : 'SHORT',
-              profit: parseFloat(diffUsd.toFixed(2))
-            };
-            setTradeLogs(prev => [autoLog, ...prev]);
-          } else {
-            setTradeLogs(prev => prev.map(log => {
-              if (log.date === todayKey && log.coin === 'BYBIT_SYNC') {
-                const combinedProfit = log.profit + diffUsd;
-                return {
-                  ...log,
-                  direction: combinedProfit > 0 ? 'LONG' : 'SHORT',
-                  profit: parseFloat(combinedProfit.toFixed(2))
-                };
-              }
-              return log;
-            }));
-          }
-        }
-
         setBybitBalanceUsd(data.totalUsdValue);
         localStorage.setItem('bybit_balance_usd', data.totalUsdValue.toString());
         
@@ -359,9 +312,8 @@ export default function App() {
         const filteredCoins = allCoins.filter(c => c.usdValue > 0.01);
         setBybitCoins(filteredCoins);
 
-        // Record balance history point (including calendar profits!)
-        const calendarProfitSumUsd = tradeLogs.reduce((sum, log) => sum + log.profit, 0);
-        const currentBybitIdr = (data.totalUsdValue + calendarProfitSumUsd) * exchangeRate;
+        // Record balance history point
+        const currentBybitIdr = data.totalUsdValue * exchangeRate;
         const todayStr = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
         const todayKey = new Date().toISOString().split('T')[0];
         
@@ -396,10 +348,9 @@ export default function App() {
 
   // Financial calculations
   const currentBybitUsd = bybitBalanceUsd;
-  const calendarProfitSumUsd = tradeLogs.reduce((sum, log) => sum + log.profit, 0);
   
-  // Consolidated balance (Bybit + Calendar profit)
-  const totalActualBalanceUsd = currentBybitUsd + calendarProfitSumUsd;
+  // Consolidated balance (Bybit balance)
+  const totalActualBalanceUsd = currentBybitUsd;
   const totalActualBalance = totalActualBalanceUsd * exchangeRate;
   
   const progressPercentage = Math.min(100, (totalActualBalance / TARGET_IDR) * 100);
@@ -411,19 +362,19 @@ export default function App() {
   const daysRemaining = Math.max(1, Math.ceil(msDiff / (1000 * 60 * 60 * 24)));
   const dailyTargetRequired = remainingNeeded / daysRemaining;
 
-  // Win Rate (WR) calculations
-  const totalTrades = tradeLogs.length;
-  const wins = tradeLogs.filter(log => log.profit > 0).length;
-  const losses = tradeLogs.filter(log => log.profit < 0).length;
+  // Win Rate (WR) calculations from Bybit History
+  const totalTrades = bybitHistory.length;
+  const wins = bybitHistory.filter(log => parseFloat(log.closedPnl || '0') > 0).length;
+  const losses = bybitHistory.filter(log => parseFloat(log.closedPnl || '0') < 0).length;
   const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
 
-  // Get win streak helper
+  // Get win streak helper from Bybit History
   const getWinStreak = () => {
-    const sorted = [...tradeLogs].sort((a, b) => b.date.localeCompare(a.date)); // newest first
     let streak = 0;
-    for (const log of sorted) {
-      if (log.profit > 0) streak++;
-      else if (log.profit < 0) break;
+    for (const log of bybitHistory) {
+      const pnl = parseFloat(log.closedPnl || '0');
+      if (pnl > 0) streak++;
+      else if (pnl < 0) break;
     }
     return streak;
   };
@@ -464,25 +415,29 @@ export default function App() {
     calendarDays.push({ isEmpty: false, day, dateStr });
   }
 
-  // Group profits by date string
-  const calendarProfits = tradeLogs.reduce((acc, log) => {
-    acc[log.date] = (acc[log.date] || 0) + log.profit;
+  // Helper to get local date string YYYY-MM-DD from timestamp
+  const getLocalDateStr = (timestamp) => {
+    if (!timestamp) return '';
+    const d = new Date(parseInt(timestamp));
+    const yr = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const dy = String(d.getDate()).padStart(2, '0');
+    return `${yr}-${mo}-${dy}`;
+  };
+
+  // Group profits by local date string from Bybit History
+  const calendarProfits = bybitHistory.reduce((acc, log) => {
+    const dateStr = getLocalDateStr(log.createdTime);
+    if (dateStr) {
+      acc[dateStr] = (acc[dateStr] || 0) + parseFloat(log.closedPnl || '0');
+    }
     return acc;
   }, {});
 
-
-
-  // Delete trade log handler
-  const handleDeleteTrade = (id) => {
-    setTradeLogs(prev => prev.filter(log => log.id !== id));
-    setSuccessMsg('Trade log dihapus.');
-    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-    successTimeoutRef.current = setTimeout(() => setSuccessMsg(null), 3000);
-  };
-
-  // Get selected day profit logs
-  const selectedDayLogs = tradeLogs.filter(log => log.date === selectedDate);
-  const selectedDayTotal = selectedDayLogs.reduce((sum, log) => sum + log.profit, 0);
+  // Get selected day profit logs from Bybit History
+  const selectedDayTotal = bybitHistory
+    .filter(log => getLocalDateStr(log.createdTime) === selectedDate)
+    .reduce((sum, log) => sum + parseFloat(log.closedPnl || '0'), 0);
 
   // Chart Data Generator
   const getChartData = () => {
@@ -829,13 +784,6 @@ export default function App() {
                 >
                   Bybit History
                 </button>
-                <button 
-                  className={`tab-btn ${rightPanelTab === 'journal' ? 'active' : ''}`}
-                  onClick={() => setRightPanelTab('journal')}
-                  style={{ flex: '1 1 auto', justifyContent: 'center', borderRadius: '30px' }}
-                >
-                  Manual Log ({totalTrades})
-                </button>
               </div>
 
               {/* Tab Content: Bybit Assets */}
@@ -984,49 +932,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Tab Content: Trade Journal logs list */}
-              {rightPanelTab === 'journal' && (
-                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
-                  {tradeLogs.length === 0 ? (
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center', margin: '2rem 0' }}>
-                      No trades recorded yet. Delta profits are auto-logged on Bybit Sync.
-                    </p>
-                  ) : (
-                    tradeLogs.map(log => (
-                      <div key={log.id} className="crypto-row">
-                        <div className="crypto-left">
-                          <div className="coin-icon-circle lavender-text">
-                            {log.coin.substring(0, 3)}
-                          </div>
-                          <div className="crypto-details">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <span className="crypto-name">{log.coin}</span>
-                              <span className={`direction-badge ${log.direction.toLowerCase()}`}>{log.direction}</span>
-                            </div>
-                            <span className="crypto-sub">
-                              {new Date(log.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="crypto-right" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <span className={`crypto-val ${log.profit > 0 ? 'profit' : 'loss'}`}>
-                              {log.profit > 0 ? '+' : ''}${log.profit.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                          <button 
-                            onClick={() => handleDeleteTrade(log.id)}
-                            className="btn-danger-titan"
-                            style={{ padding: '0.3rem', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+
             </section>
           </div>
         </div>
