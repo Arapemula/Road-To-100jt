@@ -111,6 +111,12 @@ export default function App() {
   // Right-hand Panel switcher tab ("assets" vs "journal")
   const [rightPanelTab, setRightPanelTab] = useState('assets');
 
+  // Bybit Real-Time Positions and Trade History
+  const [activePositions, setActivePositions] = useState([]);
+  const [bybitHistory, setBybitHistory] = useState([]);
+  const [positionsLoading, setPositionsLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // Countdown timer
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
@@ -216,6 +222,67 @@ export default function App() {
     localStorage.setItem('bybit_coins', JSON.stringify(bybitCoins));
   }, [bybitCoins]);
 
+  // Fetch Bybit active positions
+  const fetchActivePositions = async (silent = false) => {
+    if (!silent) setPositionsLoading(true);
+    try {
+      const res = await fetch('/api/bybit/positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActivePositions(data.positions || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch active positions:', err);
+    } finally {
+      if (!silent) setPositionsLoading(false);
+    }
+  };
+
+  // Fetch Bybit closed PnL history
+  const fetchClosedPnl = async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch('/api/bybit/closed-pnl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBybitHistory(data.history || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch closed PnL history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Polling active positions every 10 seconds if "positions" tab is active
+  useEffect(() => {
+    let interval;
+    if (rightPanelTab === 'positions') {
+      fetchActivePositions(); // initial fetch with loading state
+      interval = setInterval(() => {
+        fetchActivePositions(true); // silent fetch in background
+      }, 10000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [rightPanelTab]);
+
+  // Fetch closed PnL once when the "history" tab is active
+  useEffect(() => {
+    if (rightPanelTab === 'history') {
+      fetchClosedPnl();
+    }
+  }, [rightPanelTab]);
+
   // Fetch Live Balance from proxy
   const fetchLiveBalance = async () => {
     setLoading(true);
@@ -313,6 +380,10 @@ export default function App() {
         if (currentBybitIdr >= TARGET_IDR) {
           celebrate();
         }
+
+        // Trigger positions & history updates silently in background on sync
+        fetchActivePositions(true);
+        fetchClosedPnl();
       } else {
         setErrorMsg(data.error || 'Autentikasi Bybit ditolak.');
       }
@@ -736,26 +807,40 @@ export default function App() {
 
             {/* Asset Distribution & Trade Journal switcher */}
             <section className="obsidian-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', flex: 1 }}>
-              <div className="tabs-container" style={{ borderRadius: '30px' }}>
+              <div className="tabs-container" style={{ borderRadius: '30px', display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
                 <button 
                   className={`tab-btn ${rightPanelTab === 'assets' ? 'active' : ''}`}
                   onClick={() => setRightPanelTab('assets')}
-                  style={{ width: '50%', justifyContent: 'center', borderRadius: '30px' }}
+                  style={{ flex: '1 1 auto', justifyContent: 'center', borderRadius: '30px' }}
                 >
-                  Bybit Assets
+                  Assets
+                </button>
+                <button 
+                  className={`tab-btn ${rightPanelTab === 'positions' ? 'active' : ''}`}
+                  onClick={() => setRightPanelTab('positions')}
+                  style={{ flex: '1 1 auto', justifyContent: 'center', borderRadius: '30px', gap: '0.3rem' }}
+                >
+                  Positions {activePositions.length > 0 && <span className="position-count-badge">{activePositions.length}</span>}
+                </button>
+                <button 
+                  className={`tab-btn ${rightPanelTab === 'history' ? 'active' : ''}`}
+                  onClick={() => setRightPanelTab('history')}
+                  style={{ flex: '1 1 auto', justifyContent: 'center', borderRadius: '30px' }}
+                >
+                  Bybit History
                 </button>
                 <button 
                   className={`tab-btn ${rightPanelTab === 'journal' ? 'active' : ''}`}
                   onClick={() => setRightPanelTab('journal')}
-                  style={{ width: '50%', justifyContent: 'center', borderRadius: '30px' }}
+                  style={{ flex: '1 1 auto', justifyContent: 'center', borderRadius: '30px' }}
                 >
-                  Trade Log ({totalTrades})
+                  Manual Log ({totalTrades})
                 </button>
               </div>
 
               {/* Tab Content: Bybit Assets */}
               {rightPanelTab === 'assets' && (
-                <div className="crypto-list">
+                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
                   {activeCoins.map(c => {
                     const allocationPct = currentBybitUsd > 0 ? (c.usdValue / currentBybitUsd) * 100 : 0;
                     return (
@@ -781,9 +866,127 @@ export default function App() {
                 </div>
               )}
 
+              {/* Tab Content: Active Positions */}
+              {rightPanelTab === 'positions' && (
+                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                  {positionsLoading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
+                      <RefreshCw size={20} className="spin-anim" />
+                    </div>
+                  ) : activePositions.length === 0 ? (
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center', margin: '2rem 0' }}>
+                      Tidak ada posisi aktif saat ini.
+                    </p>
+                  ) : (
+                    activePositions.map((pos, index) => {
+                      const uPnl = parseFloat(pos.unrealisedPnl || '0');
+                      const leverage = parseFloat(pos.leverage || '1');
+                      const posValue = parseFloat(pos.positionValue || '0');
+                      const posIM = parseFloat(pos.positionIM || '0');
+                      
+                      let roi = 0;
+                      if (posIM > 0) {
+                        roi = (uPnl / posIM) * 100;
+                      } else if (posValue > 0 && leverage > 0) {
+                        roi = (uPnl / (posValue / leverage)) * 100;
+                      }
+
+                      const isLong = pos.side === 'Buy';
+                      const pnlIdr = uPnl * exchangeRate;
+
+                      return (
+                        <div key={`${pos.symbol}-${index}`} className="crypto-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem', padding: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span className="crypto-name" style={{ fontSize: '0.9rem' }}>{pos.symbol}</span>
+                              <span className={`direction-badge ${isLong ? 'long' : 'short'}`}>
+                                {isLong ? 'LONG' : 'SHORT'} {leverage}x
+                              </span>
+                            </div>
+                            <span className={`roi-badge ${uPnl >= 0 ? 'profit' : 'loss'}`}>
+                              {uPnl >= 0 ? '+' : ''}{roi.toFixed(2)}%
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--mono)', borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: '0.4rem' }}>
+                            <div>Size: <span style={{ color: '#fff' }}>{parseFloat(pos.size).toLocaleString('en-US', { maximumFractionDigits: 6 })}</span></div>
+                            <div style={{ textAlign: 'right' }}>Liq. Price: <span style={{ color: 'var(--color-crimson)' }}>{parseFloat(pos.liqPrice || '0').toLocaleString('en-US', { maximumFractionDigits: 4 })}</span></div>
+                            <div>Entry: <span style={{ color: '#fff' }}>{parseFloat(pos.entryPrice || '0').toLocaleString('en-US', { maximumFractionDigits: 4 })}</span></div>
+                            <div style={{ textAlign: 'right' }}>Mark: <span style={{ color: '#fff' }}>{parseFloat(pos.markPrice || '0').toLocaleString('en-US', { maximumFractionDigits: 4 })}</span></div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: '0.4rem', marginTop: '0.2rem' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>UNREALIZED PNL</span>
+                            <div style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                              <div className={`crypto-val ${uPnl >= 0 ? 'profit' : 'loss'}`} style={{ fontSize: '0.85rem' }}>
+                                {uPnl >= 0 ? '+' : ''}${uPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: uPnl >= 0 ? 'var(--color-green-profit)' : 'var(--color-crimson)', opacity: 0.8 }}>
+                                {uPnl >= 0 ? '+' : ''}Rp {Math.round(pnlIdr).toLocaleString('id-ID')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* Tab Content: Bybit Closed PnL History */}
+              {rightPanelTab === 'history' && (
+                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                  {historyLoading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
+                      <RefreshCw size={20} className="spin-anim" />
+                    </div>
+                  ) : bybitHistory.length === 0 ? (
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center', margin: '2rem 0' }}>
+                      Tidak ada riwayat perdagangan di Bybit.
+                    </p>
+                  ) : (
+                    bybitHistory.map((log, index) => {
+                      const pnl = parseFloat(log.closedPnl || '0');
+                      const pnlIdr = pnl * exchangeRate;
+                      const date = new Date(parseInt(log.createdTime));
+                      const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                      return (
+                        <div key={`${log.symbol}-${index}`} className="crypto-row" style={{ padding: '0.8rem 1rem' }}>
+                          <div className="crypto-left">
+                            <div className={`coin-icon-circle ${pnl >= 0 ? 'lime-text' : 'lavender-text'}`}>
+                              {log.symbol.substring(0, 3)}
+                            </div>
+                            <div className="crypto-details">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span className="crypto-name" style={{ fontSize: '0.8rem' }}>{log.symbol}</span>
+                                <span className={`direction-badge ${log.side === 'Buy' ? 'long' : 'short'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
+                                  {log.side === 'Buy' ? 'CLOSE SHORT' : 'CLOSE LONG'}
+                                </span>
+                              </div>
+                              <span className="crypto-sub" style={{ fontSize: '0.65rem', marginTop: '0.1rem' }}>
+                                {dateStr} | Exit: {parseFloat(log.exitPrice || '0').toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="crypto-right">
+                            <span className={`crypto-val ${pnl >= 0 ? 'profit' : 'loss'}`} style={{ fontSize: '0.8rem' }}>
+                              {pnl >= 0 ? '+' : ''}${pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="crypto-sub" style={{ fontSize: '0.65rem', color: pnl >= 0 ? 'var(--color-green-profit)' : 'var(--color-crimson)', opacity: 0.8 }}>
+                              {pnl >= 0 ? '+' : ''}Rp {Math.round(pnlIdr).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
               {/* Tab Content: Trade Journal logs list */}
               {rightPanelTab === 'journal' && (
-                <div className="crypto-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                <div className="crypto-list" style={{ maxHeight: '380px', overflowY: 'auto' }}>
                   {tradeLogs.length === 0 ? (
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center', margin: '2rem 0' }}>
                       No trades recorded yet. Delta profits are auto-logged on Bybit Sync.

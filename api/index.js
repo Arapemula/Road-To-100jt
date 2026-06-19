@@ -284,4 +284,115 @@ app.post('/api/bybit/balance', async (req, res) => {
   }
 });
 
+// Route to fetch Bybit active positions securely (using server-side API keys)
+app.post('/api/bybit/positions', async (req, res) => {
+  const apiKey = process.env.BYBIT_API_KEY;
+  const apiSecret = process.env.BYBIT_API_SECRET;
+
+  if (!apiKey || !apiSecret) {
+    return res.status(400).json({
+      success: false,
+      error: 'Bybit API keys are missing on the server-side environment variables.'
+    });
+  }
+
+  const categories = [
+    { category: 'linear', settleCoin: 'USDT' },
+    { category: 'inverse' }
+  ];
+  const positions = [];
+  const recvWindow = '5000';
+
+  try {
+    for (const item of categories) {
+      const timestamp = Date.now().toString();
+      const queryString = item.settleCoin
+        ? `category=${item.category}&settleCoin=${item.settleCoin}`
+        : `category=${item.category}`;
+
+      const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
+      const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature,
+      };
+
+      try {
+        const response = await callBybit(`/v5/position/list?${queryString}`, headers);
+        const data = response.data;
+        if (data.retCode === 0 && data.result?.list) {
+          // filter active positions where size > 0
+          const active = data.result.list.filter(p => parseFloat(p.size || '0') > 0);
+          positions.push(...active);
+        }
+      } catch (err) {
+        console.error(`Error fetching positions for ${item.category}:`, err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      positions
+    });
+  } catch (error) {
+    console.error('Bybit Positions Serverless Error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Route to fetch Bybit closed PnL (trade history) securely
+app.post('/api/bybit/closed-pnl', async (req, res) => {
+  const apiKey = process.env.BYBIT_API_KEY;
+  const apiSecret = process.env.BYBIT_API_SECRET;
+
+  if (!apiKey || !apiSecret) {
+    return res.status(400).json({
+      success: false,
+      error: 'Bybit API keys are missing on the server-side environment variables.'
+    });
+  }
+
+  const categories = ['linear', 'inverse'];
+  const history = [];
+  const recvWindow = '5000';
+
+  try {
+    for (const category of categories) {
+      const timestamp = Date.now().toString();
+      const queryString = `category=${category}&limit=50`;
+
+      const signature = generateBybitSignature(apiKey, apiSecret, timestamp, recvWindow, queryString);
+      const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature,
+      };
+
+      try {
+        const response = await callBybit(`/v5/position/closed-pnl?${queryString}`, headers);
+        const data = response.data;
+        if (data.retCode === 0 && data.result?.list) {
+          history.push(...data.result.list);
+        }
+      } catch (err) {
+        console.error(`Error fetching closed PnL for ${category}:`, err.message);
+      }
+    }
+
+    // Sort by createdTime descending (newest first)
+    history.sort((a, b) => parseInt(b.createdTime || '0') - parseInt(a.createdTime || '0'));
+
+    res.json({
+      success: true,
+      history
+    });
+  } catch (error) {
+    console.error('Bybit Closed PnL Serverless Error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default app;
+
